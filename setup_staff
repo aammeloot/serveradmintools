@@ -1,0 +1,62 @@
+#!/bin/bash
+
+# Get filename as argument
+if [ "$1" == "" ]; then
+	echo "Missing: file name"
+	exit
+fi
+
+echo "Creating temporary SQL file"
+touch temp_sql.sql
+
+touch result.txt
+
+for n in $(cat $1)
+do
+	# Create user account
+	echo "Creating user $n"
+	adduser --disabled-password --gecos "" $n 
+
+	#Generate a random 10 character password
+	echo "Create a password"
+	pass=$(strings /dev/urandom | grep -o '[[:alnum:]]' | head -n 8 | tr -d '\n'; echo)
+	echo "Temporary password $pass"
+
+	# Echo the username / passord combination to results.txt
+	echo "$n      $pass" >> result.txt
+
+	# Setting the user password
+	echo "Setting password to $pass"
+	echo -e "$pass\n$pass" | passwd $n
+	echo "$n:$pass" | chpasswd
+
+	# Create a web share folder and set permissions to
+	# rwxr-x--x
+	# For home and web share
+	echo "Creating web share for $n"
+	mkdir /home/$n/public_html
+	chgrp $n /home/$n/public_html
+	chown $n /home/$n/public_html
+	chmod 751 /home/$n
+	chmod 751 /home/$n/public_html
+
+	usermod -aG sudo $n
+
+	# Adding appropriate commands to SQL script to create new user
+	echo "Adding SQL commands for $n"
+	# Remove if already exists
+	echo "DROP USER IF EXISTS '$n'@'localhost';" >> temp_sql.sql
+	echo "FLUSH PRIVILEGES;"
+	echo "CREATE USER '$n'@'localhost' IDENTIFIED BY '$pass';" >> temp_sql.sql
+	echo "GRANT ALL PRIVILEGES ON *.* TO '$n'@'localhost' WITH GRANT OPTION;" >> temp_sql.sql
+	echo "GRANT SELECT ON employees.* TO '$n'@'localhost';" >> temp_sql.sql
+done
+
+echo "FLUSH PRIVILEGES;" >> temp_sql.sql
+
+mysql -v < temp_sql.sql
+echo "Deleting SQL script"
+rm temp_sql.sql
+
+echo "Done!"
+
