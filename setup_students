@@ -6,26 +6,44 @@ if [ "$1" == "" ]; then
 	exit
 fi
 
+# Creating the SQL file that will create the MariaDB accounts
 echo "Creating temporary SQL file"
 touch temp_sql.sql
 
-touch result.txt
+# Defining the groups for permissions
+ng="nogroup"
+g="student"
+
+#echo $ng
+#echo $g
+
+# For each student in the list do the following
+# 1. Create a Linux user account and home folder (/home/username)
+# 2. Generate a random 10 character alphanumerical password
+# 3. Add the username/password combination to the CSV file
+# 4. Set the password for the Linux account
+# 5. Create public_html and set permissions to home folder and web folder
+# 6. Set group to student and grant access permission to lecturer group using ACLs
+# 7. Set up Python venv for Jupyter
+# 8. Add user creation code to SQL file
+
+# Once loop finished, run SQL file to create MariaDB accounts
 
 for n in $(cat $1)
 do
-	# Create user account
+	# 1. Create user account
 	echo "Creating user $n"
-	adduser --disabled-password --gecos "" $n 
+	adduser --ingroup $g --disabled-password --gecos "" $n 
 
-	#Generate a random 10 character password
-	echo "Create a password"
+	# 2. Generate a random 8 character password
+	echo "Creating password"
 	pass=$(strings /dev/urandom | grep -o '[[:alnum:]]' | head -n 8 | tr -d '\n'; echo)
-	echo "Temporary password $pass"
+	# echo "Temporary password $pass"
 
-	# Echo the username / passord combination to results.txt
-	echo "$n      $pass" >> result.txt
+	# 3. Echo the username / passord combination to results.csv
+	echo "$n,$pass" >> result.csv
 
-	# Setting the user password
+	# 4. Setting the user password
 	echo "Setting password to $pass"
 	echo -e "$pass\n$pass" | passwd $n
 	echo "$n:$pass" | chpasswd
@@ -33,12 +51,25 @@ do
 	# Create a web share folder and set permissions to
 	# rwxr-x--x
 	# For home and web share
+
+	# Set home folder permissions rwx--x--x
+	chmod 711 /home/$n
+	setfacl -m g:$g:--- /home/$n
+	setfacl -m g:lecturer:rwx /home/$n
+
 	echo "Creating web share for $n"
 	mkdir /home/$n/public_html
-	chgrp $n /home/$n/public_html
+
+	chgrp $ng /home/$n/public_html
 	chown $n /home/$n/public_html
-	chmod 751 /home/$n
 	chmod 751 /home/$n/public_html
+	touch /home/$n/DO_NOT_REMOVE_PUBLIC_HTML
+	touch /home/$n/DO_NOT_REMOVE_PYTHON_ENV
+	
+	# Create python venv
+	su - $n -c "/usr/bin/python3 -m venv /home/$n/python_env"
+	su - $n -c "/home/$n/python_env/bin/python3 -m pip install ipykernel"
+	su - $n -c "/home/$n/python_env/bin/python3 -m ipykernel install --user --name local-env --display-name \"User Kernel (default)\""
 
 	# Adding appropriate commands to SQL script to create new user
 	echo "Adding SQL commands for $n"
@@ -57,4 +88,3 @@ echo "Deleting SQL script"
 rm temp_sql.sql
 
 echo "Done!"
-
